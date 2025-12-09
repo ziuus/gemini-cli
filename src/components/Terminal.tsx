@@ -275,9 +275,20 @@ export default function Terminal() {
     };
 
     const runShellCommand = async (cmd: string) => {
-        // We use sh -c to run the command so we can use pipes etc.
+        // Detect OS (simple check for Windows)
+        const isWindows = navigator.userAgent.includes('Windows');
+
+        let commandName = 'sh';
+        let commandArgs = ['-c', cmd];
+
+        if (isWindows) {
+            commandName = 'powershell';
+            commandArgs = ['-c', cmd]; // PowerShell also uses -c (or -Command)
+        }
+
+        // We use sh -c (or powershell -c) to run the command so we can use pipes etc.
         // Note: This is not a persistent shell, so env vars set in one command won't persist.
-        const command = Command.create('sh', ['-c', cmd]);
+        const command = Command.create(commandName, commandArgs);
 
         command.on('close', (_data) => {
             if (xtermRef.current) {

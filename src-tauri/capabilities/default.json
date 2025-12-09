@@ -30,6 +30,16 @@
           "name": "gemini",
           "cmd": "gemini",
           "args": true
+        },
+        {
+          "name": "cmd",
+          "cmd": "cmd",
+          "args": true
+        },
+        {
+          "name": "powershell",
+          "cmd": "powershell",
+          "args": true
         }
       ]
     },
