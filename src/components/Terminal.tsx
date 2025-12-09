@@ -1,9 +1,22 @@
-
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { Command } from '@tauri-apps/plugin-shell';
 import 'xterm/css/xterm.css';
+import { marked } from 'marked';
+import TerminalRenderer from 'marked-terminal';
+
+// Configure marked with TerminalRenderer
+marked.setOptions({
+    // @ts-ignore - marked-terminal types might be slightly off or incompatible with latest marked types
+    renderer: new TerminalRenderer({
+        width: 80, // Default width, will be updated dynamically if possible or just kept safe
+        reflowText: true,
+        showSectionPrefix: false,
+        unescape: true,
+        emoji: true,
+    }),
+});
 
 export default function Terminal() {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -14,18 +27,6 @@ export default function Terminal() {
     const isAiMode = useRef<boolean>(false);
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef<number>(-1);
-
-    // Helper to convert simple Markdown to ANSI
-    const markdownToAnsi = (text: string): string => {
-        let res = text;
-        // Bold **text** -> \x1b[1mtext\x1b[0m
-        res = res.replace(/\*\*(.*?)\*\*/g, '\x1b[1m$1\x1b[0m');
-        // Code `text` -> \x1b[36mtext\x1b[0m (Cyan)
-        res = res.replace(/`([^`]+)`/g, '\x1b[36m$1\x1b[0m');
-        // Code blocks ```...``` -> \x1b[36m...\x1b[0m (Cyan) - simplified
-        res = res.replace(/```([\s\S]*?)```/g, '\x1b[36m$1\x1b[0m');
-        return res;
-    };
 
     const writeSeparator = (term: XTerm) => {
         // Separator line
@@ -43,6 +44,16 @@ export default function Terminal() {
 
     useEffect(() => {
         if (!terminalRef.current) return;
+
+        // Load history from localStorage
+        const savedHistory = localStorage.getItem('cmd_history');
+        if (savedHistory) {
+            try {
+                historyRef.current = JSON.parse(savedHistory);
+            } catch (e) {
+                console.error('Failed to parse history', e);
+            }
+        }
 
         const term = new XTerm({
             cursorBlink: true,
@@ -148,6 +159,8 @@ export default function Terminal() {
                 const cmd = commandRef.current;
                 if (cmd.trim()) {
                     historyRef.current.push(cmd);
+                    // Save to localStorage
+                    localStorage.setItem('cmd_history', JSON.stringify(historyRef.current));
                     historyIndexRef.current = -1; // Reset history index
                 }
                 handleCommand(cmd);
@@ -257,6 +270,13 @@ export default function Terminal() {
             // If there is a prompt, run it one-off. If just 'ai', just enter mode.
             if (prompt) {
                 await runGemini(prompt);
+            } else {
+                isAiMode.current = true;
+                xtermRef.current?.write('\x1b[35mEntered AI mode. Type "exit" to leave.\x1b[0m\r\n');
+                if (xtermRef.current) {
+                    writeSeparator(xtermRef.current);
+                    writePrompt(xtermRef.current);
+                }
             }
             return;
         }
@@ -346,16 +366,18 @@ export default function Terminal() {
             if (line.includes('Loaded cached credentials')) return;
             if (line.includes('YOLO mode is enabled')) return;
 
-            // Apply Markdown to ANSI conversion
-            const formatted = markdownToAnsi(line);
-
-            // Use a distinct color for AI output (e.g., light purple/magenta)
-            // \x1b[38;5;147m is a nice lavender if 256 colors supported, else \x1b[35m (magenta)
-            // Let's stick to standard bright magenta for safety: \x1b[95m
-            // But markdownToAnsi adds its own colors, so maybe we wrap the whole thing or just let it be?
-            // Let's try to just print formatted and see.
-
-            xtermRef.current?.write(formatted.replace(/\n/g, '\r\n'));
+            // Apply Markdown to ANSI conversion using marked
+            try {
+                // marked.parse returns a string (Promise if async, but sync by default)
+                // We need to cast or ensure it's string.
+                const raw = marked.parse(line) as string;
+                // marked-terminal output might need some cleanup for xterm.js if it adds too many newlines
+                // But usually it's fine.
+                xtermRef.current?.write(raw.replace(/\n/g, '\r\n'));
+            } catch (e) {
+                // Fallback if parsing fails
+                xtermRef.current?.write(line.replace(/\n/g, '\r\n'));
+            }
         });
 
         command.stderr.on('data', (line) => {
