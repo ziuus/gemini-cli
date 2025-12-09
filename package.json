@@ -1,7 +1,17 @@
 {
   "name": "gemini-cli",
-  "private": true,
   "version": "0.1.2",
+  "description": "A modern, AI-powered terminal emulator built with Tauri.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ziuus/gemini-cli.git"
+  },
+  "author": "DovnDev",
+  "bugs": {
+    "url": "https://github.com/ziuus/gemini-cli/issues"
+  },
+  "homepage": "https://github.com/ziuus/gemini-cli#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",
