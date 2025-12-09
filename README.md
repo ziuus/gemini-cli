@@ -1,5 +1,9 @@
 # Gemini Terminal
 
+![License](https://img.shields.io/github/license/ziuus/gemini-cli)
+![Version](https://img.shields.io/github/v/release/ziuus/gemini-cli)
+![Build Status](https://img.shields.io/github/actions/workflow/status/ziuus/gemini-cli/release.yml)
+
 A modern, AI-powered terminal emulator built with Tauri, React, and TypeScript. It integrates Google's Gemini AI directly into your command line workflow.
 
 ## Features
@@ -13,7 +17,7 @@ A modern, AI-powered terminal emulator built with Tauri, React, and TypeScript. 
 ## Installation
 
 ### Download
-Go to the [Releases](https://github.com/yourusername/gemini-cli/releases) page and download the installer for your operating system:
+Go to the [Releases](https://github.com/ziuus/gemini-cli/releases) page and download the installer for your operating system:
 -   **Windows**: `.msi` or `.exe`
 -   **Linux**: `.deb` or `.AppImage`
 
@@ -25,7 +29,7 @@ Go to the [Releases](https://github.com/yourusername/gemini-cli/releases) page a
 
 2.  **Clone and Install**:
     ```bash
-    git clone https://github.com/yourusername/gemini-cli.git
+    git clone https://github.com/ziuus/gemini-cli.git
     cd gemini-cli
     pnpm install
     ```
@@ -68,11 +72,15 @@ The terminal behaves like a standard shell (e.g., `bash` or `zsh` on Linux, `cmd
 -   `Ctrl+L`: Clear the terminal.
 -   `Ctrl+C`: Interrupt current command.
 
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) for more details.
+
 ## Tech Stack
 -   **Frontend**: React, TypeScript, xterm.js
 -   **Backend**: Rust (Tauri)
 -   **Build Tool**: Vite, pnpm
 
 ## License
-MIT
+Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
