@@ -3,20 +3,6 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { Command } from '@tauri-apps/plugin-shell';
 import 'xterm/css/xterm.css';
-import { marked } from 'marked';
-import TerminalRenderer from 'marked-terminal';
-
-// Configure marked with TerminalRenderer
-marked.setOptions({
-    // @ts-ignore - marked-terminal types might be slightly off or incompatible with latest marked types
-    renderer: new TerminalRenderer({
-        width: 80, // Default width, will be updated dynamically if possible or just kept safe
-        reflowText: true,
-        showSectionPrefix: false,
-        unescape: true,
-        emoji: true,
-    }),
-});
 
 export default function Terminal() {
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -27,6 +13,27 @@ export default function Terminal() {
     const isAiMode = useRef<boolean>(false);
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef<number>(-1);
+
+    // Helper to convert simple Markdown to ANSI
+    // We use this instead of marked/marked-terminal because marked-terminal
+    // has Node.js dependencies (chalk) that crash in the browser.
+    const markdownToAnsi = (text: string): string => {
+        let res = text;
+        // Bold **text** -> \x1b[1mtext\x1b[0m
+        res = res.replace(/\*\*(.*?)\*\*/g, '\x1b[1m$1\x1b[0m');
+        // Italic *text* -> \x1b[3mtext\x1b[0m
+        res = res.replace(/\*(.*?)\*/g, '\x1b[3m$1\x1b[0m');
+        // Code `text` -> \x1b[36mtext\x1b[0m (Cyan)
+        res = res.replace(/`([^`]+)`/g, '\x1b[36m$1\x1b[0m');
+        // Code blocks ```...``` -> \x1b[36m...\x1b[0m (Cyan)
+        // This is a simple regex and won't handle nested blocks perfectly but works for basic output
+        res = res.replace(/```([\s\S]*?)```/g, '\x1b[36m$1\x1b[0m');
+        // Headers # -> Bold + Underline
+        res = res.replace(/^#+\s+(.*)$/gm, '\x1b[1;4m$1\x1b[0m');
+        // Lists - -> •
+        res = res.replace(/^\s*-\s+/gm, ' • ');
+        return res;
+    };
 
     const writeSeparator = (term: XTerm) => {
         // Separator line
@@ -366,18 +373,9 @@ export default function Terminal() {
             if (line.includes('Loaded cached credentials')) return;
             if (line.includes('YOLO mode is enabled')) return;
 
-            // Apply Markdown to ANSI conversion using marked
-            try {
-                // marked.parse returns a string (Promise if async, but sync by default)
-                // We need to cast or ensure it's string.
-                const raw = marked.parse(line) as string;
-                // marked-terminal output might need some cleanup for xterm.js if it adds too many newlines
-                // But usually it's fine.
-                xtermRef.current?.write(raw.replace(/\n/g, '\r\n'));
-            } catch (e) {
-                // Fallback if parsing fails
-                xtermRef.current?.write(line.replace(/\n/g, '\r\n'));
-            }
+            // Apply Markdown to ANSI conversion
+            const formatted = markdownToAnsi(line);
+            xtermRef.current?.write(formatted.replace(/\n/g, '\r\n'));
         });
 
         command.stderr.on('data', (line) => {
