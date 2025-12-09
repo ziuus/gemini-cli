@@ -11,6 +11,7 @@ export default function Terminal() {
     const fitAddonRef = useRef<FitAddon | null>(null);
     const commandRef = useRef<string>('');
     const hasGeminiSession = useRef<boolean>(false);
+    const isAiMode = useRef<boolean>(false);
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef<number>(-1);
 
@@ -33,7 +34,7 @@ export default function Terminal() {
 
     const writePrompt = (term: XTerm) => {
         // Distinct prompts
-        if (commandRef.current.startsWith('ai ')) {
+        if (isAiMode.current) {
             term.write('\x1b[35m✨ AI\x1b[0m \x1b[1;32m➜\x1b[0m '); // Purple AI, Green Arrow
         } else {
             term.write('\x1b[1;32m➜\x1b[0m \x1b[34m~\x1b[0m '); // Green Arrow, Blue Tilde
@@ -80,6 +81,7 @@ export default function Terminal() {
 
         // Welcome message with color
         term.write('\x1b[1;34mWelcome to Gemini Terminal\x1b[0m\r\n');
+        term.write('\x1b[90mType "help" to see available commands and shortcuts.\x1b[0m\r\n');
         writePrompt(term);
 
         term.onData((data) => {
@@ -132,18 +134,12 @@ export default function Terminal() {
                 if (commandRef.current) term.write(commandRef.current);
                 return;
             } else if (data === '\x00') { // Ctrl+Space (AI Toggle)
-                const current = commandRef.current;
-                let newCmd = '';
-                if (current.startsWith('ai ')) {
-                    newCmd = current.slice(3);
-                } else {
-                    newCmd = 'ai ' + current;
-                }
-                commandRef.current = newCmd;
-
+                // Toggle AI mode directly? Or just prefix?
+                // Let's make it toggle the mode for better UX now
+                isAiMode.current = !isAiMode.current;
                 term.write('\x1b[2K\r');
                 writePrompt(term);
-                term.write(newCmd);
+                term.write(commandRef.current);
                 return;
             }
 
@@ -160,12 +156,6 @@ export default function Terminal() {
                 if (commandRef.current.length > 0) {
                     term.write('\b \b');
                     commandRef.current = commandRef.current.slice(0, -1);
-
-                    // Check if we removed 'ai ' prefix, might need to update prompt style?
-                    // This is tricky dynamically. For now, prompt style is static per line until Enter.
-                    // But Ctrl+Space updates it.
-                    // If user manually backspaces 'ai ', prompt won't update automatically with current logic unless we re-render prompt on every keystroke which is expensive/flickery.
-                    // Let's leave it for now.
                 }
             } else {
                 // Filter out other control characters if needed, but for now just write
@@ -195,8 +185,52 @@ export default function Terminal() {
         const trimmedCmd = cmd.trim();
         if (!trimmedCmd) {
             if (xtermRef.current) {
-                // Just new prompt line if empty command? Or separator?
-                // Usually just new prompt.
+                writePrompt(xtermRef.current);
+            }
+            return;
+        }
+
+        if (isAiMode.current) {
+            if (trimmedCmd === 'exit') {
+                isAiMode.current = false;
+                xtermRef.current?.write('\x1b[33mExited AI mode.\x1b[0m\r\n');
+                if (xtermRef.current) {
+                    writeSeparator(xtermRef.current);
+                    writePrompt(xtermRef.current);
+                }
+                return;
+            }
+            if (trimmedCmd === 'help') {
+                xtermRef.current?.write('\r\n\x1b[1mAI Mode Commands:\x1b[0m\r\n');
+                xtermRef.current?.write('  \x1b[36mexit\x1b[0m        Exit AI mode and return to shell\r\n');
+                xtermRef.current?.write('  \x1b[36mCtrl+Space\x1b[0m  Toggle AI mode\r\n');
+                if (xtermRef.current) {
+                    writeSeparator(xtermRef.current);
+                    writePrompt(xtermRef.current);
+                }
+                return;
+            }
+            await runGemini(trimmedCmd);
+            return;
+        }
+
+        if (trimmedCmd === 'help') {
+            xtermRef.current?.write('\r\n\x1b[1mAvailable Commands:\x1b[0m\r\n');
+            xtermRef.current?.write('  \x1b[36mai <prompt>\x1b[0m   Run a one-off AI command\r\n');
+            xtermRef.current?.write('  \x1b[36mai\x1b[0m            Enter persistent AI chat mode\r\n');
+            xtermRef.current?.write('  \x1b[36mCtrl+Space\x1b[0m    Toggle AI mode\r\n');
+            xtermRef.current?.write('  \x1b[36mclear\x1b[0m         Clear the terminal (or Ctrl+L)\r\n');
+            xtermRef.current?.write('  \x1b[36menv-debug\x1b[0m     Show environment variables\r\n');
+            if (xtermRef.current) {
+                writeSeparator(xtermRef.current);
+                writePrompt(xtermRef.current);
+            }
+            return;
+        }
+
+        if (trimmedCmd === 'clear') {
+            xtermRef.current?.clear();
+            if (xtermRef.current) {
                 writePrompt(xtermRef.current);
             }
             return;
@@ -217,10 +251,23 @@ export default function Terminal() {
             return;
         }
 
-        // Check for AI command
+        // Check for AI command to enter AI mode
         if (trimmedCmd.startsWith('ai ')) {
             const prompt = trimmedCmd.slice(3).trim();
-            await runGemini(prompt);
+            // If there is a prompt, run it one-off. If just 'ai', just enter mode.
+            if (prompt) {
+                await runGemini(prompt);
+            }
+            return;
+        }
+
+        if (trimmedCmd === 'ai') {
+            isAiMode.current = true;
+            xtermRef.current?.write('\x1b[35mEntered AI mode. Type "exit" to leave.\x1b[0m\r\n');
+            if (xtermRef.current) {
+                writeSeparator(xtermRef.current);
+                writePrompt(xtermRef.current);
+            }
             return;
         }
 
@@ -284,8 +331,9 @@ export default function Terminal() {
         const command = Command.create('gemini', args);
 
         command.stdout.on('data', (line) => {
-            // Filter out "Loaded cached credentials"
+            // Filter out "Loaded cached credentials" and "YOLO mode"
             if (line.includes('Loaded cached credentials')) return;
+            if (line.includes('YOLO mode is enabled')) return;
 
             // Apply Markdown to ANSI conversion
             const formatted = markdownToAnsi(line);
@@ -300,6 +348,10 @@ export default function Terminal() {
         });
 
         command.stderr.on('data', (line) => {
+            // Filter out "Loaded cached credentials" and "YOLO mode" from stderr too
+            if (line.includes('Loaded cached credentials')) return;
+            if (line.includes('YOLO mode is enabled')) return;
+
             xtermRef.current?.write(line.replace(/\n/g, '\r\n'));
         });
 
