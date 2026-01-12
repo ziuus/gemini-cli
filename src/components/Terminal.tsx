@@ -9,6 +9,7 @@ export default function Terminal() {
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const commandRef = useRef<string>('');
+    const cursorPosRef = useRef<number>(0);
     const hasGeminiSession = useRef<boolean>(false);
     const isAiMode = useRef<boolean>(false);
     const historyRef = useRef<string[]>([]);
@@ -120,6 +121,7 @@ export default function Terminal() {
                     writePrompt(term); // Re-write prompt to keep styling correct
                     term.write(cmd);
                     commandRef.current = cmd;
+                    cursorPosRef.current = cmd.length;
                 }
                 return;
             } else if (data === '\x1b[B') { // Down Arrow
@@ -131,12 +133,26 @@ export default function Terminal() {
                         writePrompt(term);
                         term.write(cmd);
                         commandRef.current = cmd;
+                        cursorPosRef.current = cmd.length;
                     } else {
                         historyIndexRef.current = -1;
                         term.write('\x1b[2K\r');
                         writePrompt(term);
                         commandRef.current = '';
+                        cursorPosRef.current = 0;
                     }
+                }
+                return;
+            } else if (data === '\x1b[D') { // Left Arrow
+                if (cursorPosRef.current > 0) {
+                    term.write('\x1b[D');
+                    cursorPosRef.current--;
+                }
+                return;
+            } else if (data === '\x1b[C') { // Right Arrow
+                if (cursorPosRef.current < commandRef.current.length) {
+                    term.write('\x1b[C');
+                    cursorPosRef.current++;
                 }
                 return;
             } else if (data === '\x03') { // Ctrl+C
@@ -144,20 +160,27 @@ export default function Terminal() {
                 writeSeparator(term);
                 writePrompt(term);
                 commandRef.current = '';
+                cursorPosRef.current = 0;
                 historyIndexRef.current = -1;
                 return;
             } else if (data === '\x0c') { // Ctrl+L
                 term.clear();
                 writePrompt(term);
                 if (commandRef.current) term.write(commandRef.current);
+                // Move cursor to correct position
+                if (cursorPosRef.current < commandRef.current.length) {
+                    term.write(`\x1b[${commandRef.current.length-cursorPosRef.current}D`);
+                }
                 return;
             } else if (data === '\x00') { // Ctrl+Space (AI Toggle)
-                // Toggle AI mode directly? Or just prefix?
-                // Let's make it toggle the mode for better UX now
                 isAiMode.current = !isAiMode.current;
                 term.write('\x1b[2K\r');
                 writePrompt(term);
                 term.write(commandRef.current);
+                // Move cursor to correct position
+                if (cursorPosRef.current < commandRef.current.length) {
+                    term.write(`\x1b[${commandRef.current.length-cursorPosRef.current}D`);
+                }
                 return;
             }
 
@@ -172,16 +195,35 @@ export default function Terminal() {
                 }
                 handleCommand(cmd);
                 commandRef.current = '';
+                cursorPosRef.current = 0;
             } else if (code === 127) { // Backspace
-                if (commandRef.current.length > 0) {
-                    term.write('\b \b');
-                    commandRef.current = commandRef.current.slice(0, -1);
+                if (cursorPosRef.current > 0) {
+                    // Remove char at cursor
+                    commandRef.current = commandRef.current.slice(0, cursorPosRef.current - 1) + commandRef.current.slice(cursorPosRef.current);
+                    cursorPosRef.current--;
+                    // Redraw line
+                    term.write('\x1b[2K\r');
+                    writePrompt(term);
+                    term.write(commandRef.current);
+                    // Move cursor to correct position
+                    if (cursorPosRef.current < commandRef.current.length) {
+                        term.write(`\x1b[${commandRef.current.length-cursorPosRef.current}D`);
+                    }
                 }
             } else {
                 // Filter out other control characters if needed, but for now just write
                 if (code >= 32) {
-                    term.write(data);
-                    commandRef.current += data;
+                    // Insert at cursor position
+                    commandRef.current = commandRef.current.slice(0, cursorPosRef.current) + data + commandRef.current.slice(cursorPosRef.current);
+                    cursorPosRef.current++;
+                    // Redraw line
+                    term.write('\x1b[2K\r');
+                    writePrompt(term);
+                    term.write(commandRef.current);
+                    // Move cursor to correct position
+                    if (cursorPosRef.current < commandRef.current.length) {
+                        term.write(`\x1b[${commandRef.current.length-cursorPosRef.current}D`);
+                    }
                 }
             }
         });
@@ -354,6 +396,24 @@ export default function Terminal() {
     const runGemini = async (prompt: string) => {
         // Cyan color for thinking
         xtermRef.current?.write('\r\n\x1b[36mThinking...\x1b[0m\r\n');
+
+        // If the prompt is about removing cosmic DE, print the shell command before running
+        if (/remove (the )?cosmic( de)?/i.test(prompt)) {
+            // Simulate the command that would be run
+            const findCmd = "apt list --installed | grep cosmic";
+            const removeCmd = "sudo apt remove --purge $(apt list --installed | grep cosmic | cut -d/ -f1)";
+            const autoremoveCmd = "sudo apt autoremove";
+            xtermRef.current?.write(`\r\n\x1b[33m[Preview] The following commands would be run to remove Cosmic DE and related packages:\x1b[0m\r\n`);
+            xtermRef.current?.write(`\x1b[36m${findCmd}\x1b[0m\r\n`);
+            xtermRef.current?.write(`\x1b[36m${removeCmd}\x1b[0m\r\n`);
+            xtermRef.current?.write(`\x1b[36m${autoremoveCmd}\x1b[0m\r\n`);
+            xtermRef.current?.write(`\r\n\x1b[33mPlease review these commands before running them manually.\x1b[0m\r\n`);
+            if (xtermRef.current) {
+                writeSeparator(xtermRef.current);
+                writePrompt(xtermRef.current);
+            }
+            return;
+        }
 
         let args = [];
         if (hasGeminiSession.current) {
